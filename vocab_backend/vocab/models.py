@@ -1,5 +1,5 @@
 from django.db import models
-
+from django.conf import settings
 class Word(models.Model):
     word = models.CharField(max_length=100, unique=True, default="N/A")
     pronunciation = models.CharField(max_length=100, default="N/A", blank=True)
@@ -48,6 +48,25 @@ class MathQuestion(models.Model):
     spaced_repetition = models.JSONField(default=dict)  # e.g., {"interval": 0, "next_review": null}
 
     created_at = models.DateTimeField(auto_now_add=True)
+class UserWordProgress(models.Model):
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    word = models.ForeignKey('Word', on_delete=models.CASCADE)
+    mastery = models.IntegerField(default=0)
+    times_correct = models.IntegerField(default=0)
+    times_asked = models.IntegerField(default=0)
+    last_practiced = models.DateTimeField(null=True, blank=True)
+    next_review = models.DateTimeField(null=True, blank=True)
+    ease_factor = models.FloatField(default=2.5)
+    interval = models.IntegerField(default=1)  # in days
+    due_date = models.DateTimeField(null=True, blank=True)
 
+    class Meta:
+        unique_together = ('user', 'word')
+
+class ReviewSession(models.Model):
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    word = models.ForeignKey('Word', on_delete=models.CASCADE)
+    timestamp = models.DateTimeField(auto_now_add=True)
+    result = models.BooleanField()  # True=correct, False=incorrect
     def __str__(self):
         return f"Q: {self.question[:50]}..."

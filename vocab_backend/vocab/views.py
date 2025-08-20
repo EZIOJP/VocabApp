@@ -2,10 +2,11 @@ from rest_framework.viewsets import ModelViewSet
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from rest_framework import status
-from .models import MathQuestion
-from .serializers import MathQuestionSerializer
-from .models import Word
-from .serializers import WordSerializer
+from .models import MathQuestion, Word, UserWordProgress, ReviewSession
+from .serializers import MathQuestionSerializer, WordSerializer, UserWordProgressSerializer, ReviewSessionSerializer
+from django.utils import timezone
+from rest_framework import generics, permissions
+from django.contrib.auth import get_user_model
 
 
 class WordViewSet(ModelViewSet):
@@ -101,6 +102,79 @@ def update_quiz_stats(request, pk):
         return Response(WordSerializer(word).data)
 
     return Response({"error": "Missing 'correct' field"}, status=status.HTTP_400_BAD_REQUEST)
-class MathQuestionViewSet(ModelViewSet):
-    queryset = MathQuestion.objects.all()
-    serializer_class = MathQuestionSerializer   
+
+# --- New Views for UserWordProgress and ReviewSession --- #
+
+class UserWordProgressListCreateView(generics.ListCreateAPIView):
+    queryset = UserWordProgress.objects.all()
+    serializer_class = UserWordProgressSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+class UserWordProgressDetailView(generics.RetrieveUpdateAPIView):
+    queryset = UserWordProgress.objects.all()
+    serializer_class = UserWordProgressSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+class ReviewSessionListCreateView(generics.ListCreateAPIView):
+    queryset = ReviewSession.objects.all()
+    serializer_class = ReviewSessionSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+# --- Custom Endpoints --- #
+from rest_framework.decorators import api_view, permission_classes
+
+@api_view(['GET'])
+@permission_classes([permissions.IsAuthenticated])
+def reviews_due(request):
+    """Return words due for review for the current user."""
+    now = timezone.now()
+    due = UserWordProgress.objects.filter(user=request.user, due_date__lte=now)
+    serializer = UserWordProgressSerializer(due, many=True)
+    return Response(serializer.data)
+
+@api_view(['POST'])
+@permission_classes([permissions.IsAuthenticated])
+def reviews_update(request):
+    """Update UserWordProgress after a quiz answer (expects user, word, result)."""
+    user = request.user
+    word_id = request.data.get('word')
+    result = request.data.get('result')  # boolean
+    try:
+        progress = UserWordProgress.objects.get(user=user, word_id=word_id)
+    except UserWordProgress.DoesNotExist:
+        return Response({'error': 'Progress not found.'}, status=404)
+
+    # Simple SM-2 spaced repetition update (can be improved)
+    import datetime
+    if result:
+        progress.times_correct += 1
+        progress.mastery += 1
+        progress.ease_factor = max(1.3, progress.ease_factor + 0.1)
+        progress.interval = int(progress.interval * progress.ease_factor)
+    else:
+        progress.mastery = max(0, progress.mastery - 1)
+        progress.ease_factor = max(1.3, progress.ease_factor - 0.2)
+        progress.interval = 1
+    progress.times_asked += 1
+    progress.last_practiced = timezone.now()
+    progress.due_date = timezone.now() + datetime.timedelta(days=progress.interval)
+    progress.next_review = progress.due_date
+    progress.save()
+
+    # Log review session
+    ReviewSession.objects.create(user=user, word_id=word_id, result=result)
+    return Response(UserWordProgressSerializer(progress).data)
+
+@api_view(['GET'])
+@permission_classes([permissions.IsAuthenticated])
+def user_progress(request):
+    """Return user's learning stats."""
+    user = request.user
+    total = UserWordProgress.objects.filter(user=user).count()
+    mastered = UserWordProgress.objects.filter(user=user, mastery__gte=5).count()
+    due = UserWordProgress.objects.filter(user=user, due_date__lte=timezone.now()).count()
+    return Response({
+        'total_words': total,
+        'mastered_words': mastered,
+        'due_reviews': due,
+    })

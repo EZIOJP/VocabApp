@@ -1,5 +1,7 @@
+
 import React, { useState } from "react";
-import axios from "axios";
+import { API_BASE_URL } from "../apiConfig";
+
 
 const AddWordJSON = () => {
   const [jsonInput, setJsonInput] = useState("");
@@ -39,11 +41,20 @@ const AddWordJSON = () => {
 
   const handleSubmit = async () => {
     try {
-      const response = await axios.post("http://127.0.0.1:8000/api/add-words/", parsedWords);
+      const response = await fetch(`${API_BASE_URL}/add-words/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: jsonInput,
+      });
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw { response: { data: errorData } };
+      }
+      const data = await response.json();
       setStatus({
         type: "success",
-        message: `✅ Added ${response.data.added_count} words. ❌ Failed: ${response.data.failed_count}`,
-        details: response.data,
+        message: "✅ Words added successfully!",
+        details: data,
       });
       setJsonInput("");
       setParsedWords([]);

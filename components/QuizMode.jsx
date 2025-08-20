@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { API_BASE_URL } from "../apiConfig";
 import axios from "axios";
 
 const QuizMode = () => {
@@ -13,14 +14,10 @@ const QuizMode = () => {
   const [completed, setCompleted] = useState(false);
 
   useEffect(() => {
-    axios.get("http://192.168.0.106:8000/api/words/")
-      .then((response) => {
-        const shuffled = response.data.sort(() => 0.5 - Math.random());
-        setWords(shuffled);
-      })
-      .catch((error) => {
-        console.error("Error fetching words:", error);
-      });
+    fetch(`${API_BASE_URL}/words/`)
+      .then((res) => res.json())
+      .then((data) => setWords(data))
+      .catch((err) => console.error(err));
   }, []);
 
   const startQuiz = (length) => {

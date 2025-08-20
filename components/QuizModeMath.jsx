@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { API_BASE_URL } from "../apiConfig";
 
 // Define a simple Button component if not using a UI library
 const Button = ({ onClick, children, className = "" }) => (

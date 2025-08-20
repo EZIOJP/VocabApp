@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-const API_URL = process.env.REACT_APP_API_URL;
+import { API_BASE_URL } from "../apiConfig";
 // Ensure the API URL is defined
 const TestHeading = () => {
   return (
@@ -13,7 +13,7 @@ export default function TestWordFetch() {
   const [words, setWords] = useState([]);
 
   useEffect(() => {
-    fetch("http://192.168.0.106:8000/api/words/")
+  fetch(`${API_BASE_URL}/words/`)
       .then((res) => res.json())
       .then((data) => setWords(data))
       .catch((err) => console.error("Fetch error:", err));

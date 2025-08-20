@@ -1,10 +1,20 @@
 from rest_framework import serializers
-from .models import Word
+from .models import Word, UserWordProgress, ReviewSession
 from django.utils import timezone
 from .models import MathQuestion
 class WordSerializer(serializers.ModelSerializer):
     class Meta:
         model = Word
+        fields = '__all__'
+
+class UserWordProgressSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = UserWordProgress
+        fields = '__all__'
+
+class ReviewSessionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ReviewSession
         fields = '__all__'
         
 class MathQuestionSerializer(serializers.ModelSerializer):

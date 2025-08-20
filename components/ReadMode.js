@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { API_BASE_URL } from "../apiConfig";
 
 /**
  * ReadMode displays a vocabulary word with all its details in a responsive, visually clear card.
@@ -10,7 +11,7 @@ export default function ReadMode() {
   const [index, setIndex] = useState(0);
 
   useEffect(() => {
-    fetch("http://192.168.0.106:8000/api/words/")
+    fetch(`${API_BASE_URL}/words/`)
       .then((res) => res.json())
       .then((data) => setWords(data))
       .catch((err) => console.error(err));
