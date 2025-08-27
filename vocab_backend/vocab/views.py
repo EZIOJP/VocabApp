@@ -1,19 +1,88 @@
-from rest_framework.viewsets import ModelViewSet
-from rest_framework.decorators import api_view
-from rest_framework.response import Response
-from rest_framework import status
-from .models import MathQuestion, Word, UserWordProgress, ReviewSession
-from .serializers import MathQuestionSerializer, WordSerializer, UserWordProgressSerializer, ReviewSessionSerializer
 from django.utils import timezone
-from rest_framework import generics, permissions
-from django.contrib.auth import get_user_model
+from django.contrib.auth.models import User
+from rest_framework import status, generics, permissions, viewsets
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.response import Response
+
+from .models import MathQuestion, Word, UserWordProgress, ReviewSession
+from .serializers import (
+    MathQuestionSerializer,
+    WordSerializer,
+    UserWordProgressSerializer,
+    ReviewSessionSerializer,
+)
+
+# -----------------------
+# Helpers
+# -----------------------
+
+def get_active_user(request):
+    """
+    If user is not authenticated, fallback to demo user.
+    """
+    if request.user and request.user.is_authenticated:
+        return request.user
+    user, _ = User.objects.get_or_create(username="demo")
+    return user
 
 
-class WordViewSet(ModelViewSet):
+def apply_sm2(progress: UserWordProgress, quality: int, now=None):
+    """
+    Minimal SM-2 algorithm.
+    quality: 0..5 (>=3 = correct)
+    """
+    if now is None:
+        now = timezone.now()
+
+    q = max(0, min(5, int(quality)))
+    ef = progress.ease_factor
+    ef_new = ef + (0.1 - (5 - q) * (0.08 + (5 - q) * 0.02))
+    ef = max(1.3, ef_new)
+
+    if q < 3:  # incorrect
+        progress.repetitions = 0
+        progress.interval = 1
+        progress.mastery = max(0, (progress.mastery or 0) - 1)
+    else:  # correct
+        progress.repetitions = (progress.repetitions or 0) + 1
+        if progress.repetitions == 1:
+            progress.interval = 1
+        elif progress.repetitions == 2:
+            progress.interval = 6
+        else:
+            progress.interval = round((progress.interval or 1) * ef)
+        progress.mastery = (progress.mastery or 0) + 1
+
+    progress.ease_factor = ef
+    progress.times_asked = (progress.times_asked or 0) + 1
+    if q >= 3:
+        progress.times_correct = (progress.times_correct or 0) + 1
+    progress.last_practiced = now
+    progress.due_date = now + timezone.timedelta(days=progress.interval)
+    return progress
+
+
+# -----------------------
+# Word CRUD
+# -----------------------
+
+class WordViewSet(viewsets.ModelViewSet):
     queryset = Word.objects.all()
     serializer_class = WordSerializer
 
 
+# -----------------------
+# MathQuestion CRUD
+# -----------------------
+
+class MathQuestionViewSet(viewsets.ModelViewSet):
+    queryset = MathQuestion.objects.all()
+    serializer_class = MathQuestionSerializer
+
+
+# -----------------------
+# Bulk add words
+# -----------------------
 
 @api_view(['POST'])
 def add_words_bulk(request):
@@ -24,8 +93,8 @@ def add_words_bulk(request):
     result = {"added": [], "failed": []}
 
     for word_data in input_data:
-        word_text = word_data.get("word", "").strip() or "(missing)"
-        
+        word_text = (word_data.get("word") or "").strip() or "(missing)"
+
         if not word_data.get("word"):
             result["failed"].append({
                 "word": word_text,
@@ -61,24 +130,21 @@ def add_words_bulk(request):
     status_code = status.HTTP_207_MULTI_STATUS if result["failed"] else status.HTTP_201_CREATED
     return Response(result, status=status_code)
 
-def _sanitize_types(data):
-    """Attempt to coerce strings into proper types like boolean/int if needed."""
-    def parse_value(v):
-        if isinstance(v, str):
-            v_lower = v.lower()
-            if v_lower in ("true", "false"):
-                return v_lower == "true"
-            if v.isdigit():
-                return int(v)
-        return v
 
-    return {k: parse_value(v) for k, v in data.items()}
+# -----------------------
+# Low mastery words
+# -----------------------
 
 @api_view(['GET'])
 def low_mastery_words(request):
     low_words = Word.objects.filter(mastery__lte=2).order_by('mastery')
     serializer = WordSerializer(low_words, many=True)
     return Response(serializer.data)
+
+
+# -----------------------
+# Legacy quiz stats (global)
+# -----------------------
 
 @api_view(['PUT'])
 def update_quiz_stats(request, pk):
@@ -89,92 +155,153 @@ def update_quiz_stats(request, pk):
 
     data = request.data
 
-    # Increment or decrement fields
     if 'correct' in data:
-        word.times_asked += 1
+        word.times_asked = (word.times_asked or 0) + 1
         if data['correct']:
-            word.times_correct += 1
-            word.mastery = min(word.mastery + 1, 5)  # cap max mastery at 5
+            word.times_correct = (word.times_correct or 0) + 1
+            word.mastery = min((word.mastery or 0) + 1, 5)
         else:
-            word.mastery = max(word.mastery - 1, 0)  # floor at 0
+            word.mastery = max((word.mastery or 0) - 1, 0)
 
         word.save()
         return Response(WordSerializer(word).data)
 
     return Response({"error": "Missing 'correct' field"}, status=status.HTTP_400_BAD_REQUEST)
 
-# --- New Views for UserWordProgress and ReviewSession --- #
+
+# -----------------------
+# User progress + reviews
+# -----------------------
 
 class UserWordProgressListCreateView(generics.ListCreateAPIView):
-    queryset = UserWordProgress.objects.all()
     serializer_class = UserWordProgressSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.AllowAny]
+
+    def get_queryset(self):
+        user = get_active_user(self.request)
+        return UserWordProgress.objects.filter(user=user)
+
+    def perform_create(self, serializer):
+        user = get_active_user(self.request)
+        serializer.save(user=user)
+
 
 class UserWordProgressDetailView(generics.RetrieveUpdateAPIView):
-    queryset = UserWordProgress.objects.all()
     serializer_class = UserWordProgressSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.AllowAny]
+
+    def get_queryset(self):
+        user = get_active_user(self.request)
+        return UserWordProgress.objects.filter(user=user)
+
 
 class ReviewSessionListCreateView(generics.ListCreateAPIView):
-    queryset = ReviewSession.objects.all()
     serializer_class = ReviewSessionSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.AllowAny]
 
-# --- Custom Endpoints --- #
-from rest_framework.decorators import api_view, permission_classes
+    def get_queryset(self):
+        user = get_active_user(self.request)
+        return ReviewSession.objects.filter(user=user)
 
-@api_view(['GET'])
-@permission_classes([permissions.IsAuthenticated])
-def reviews_due(request):
-    """Return words due for review for the current user."""
-    now = timezone.now()
-    due = UserWordProgress.objects.filter(user=request.user, due_date__lte=now)
-    serializer = UserWordProgressSerializer(due, many=True)
-    return Response(serializer.data)
+    def perform_create(self, serializer):
+        user = get_active_user(self.request)
+        serializer.save(user=user)
 
-@api_view(['POST'])
-@permission_classes([permissions.IsAuthenticated])
-def reviews_update(request):
-    """Update UserWordProgress after a quiz answer (expects user, word, result)."""
-    user = request.user
-    word_id = request.data.get('word')
-    result = request.data.get('result')  # boolean
+
+# -----------------------
+# New SR endpoints
+# -----------------------
+
+@api_view(["POST"])
+@permission_classes([permissions.AllowAny])
+def mark_read(request):
+    """
+    Body: { "word_id": <int> }
+    Seeds progress for the user with due_date=now if missing.
+    """
+    user = get_active_user(request)
+    word_id = request.data.get("word_id")
+    if not word_id:
+        return Response({"detail": "word_id required"}, status=400)
     try:
-        progress = UserWordProgress.objects.get(user=user, word_id=word_id)
-    except UserWordProgress.DoesNotExist:
-        return Response({'error': 'Progress not found.'}, status=404)
+        word = Word.objects.get(id=word_id)
+    except Word.DoesNotExist:
+        return Response({"detail": "Word not found"}, status=404)
 
-    # Simple SM-2 spaced repetition update (can be improved)
-    import datetime
-    if result:
-        progress.times_correct += 1
-        progress.mastery += 1
-        progress.ease_factor = max(1.3, progress.ease_factor + 0.1)
-        progress.interval = int(progress.interval * progress.ease_factor)
+    uwp, _ = UserWordProgress.objects.get_or_create(
+        user=user, word=word, defaults={"due_date": timezone.now()}
+    )
+    return Response(UserWordProgressSerializer(uwp).data, status=200)
+
+
+@api_view(["GET"])
+@permission_classes([permissions.AllowAny])
+def reviews_due(request):
+    """
+    GET ?limit=20&bucket=today|yesterday|last7days|older
+    Returns prioritized due items for the user.
+    """
+    user = get_active_user(request)
+    now = timezone.now()
+    limit = int(request.GET.get("limit", 20))
+    bucket = request.GET.get("bucket")
+
+    qs = UserWordProgress.objects.filter(user=user)
+    if bucket == "yesterday":
+        day = (now - timezone.timedelta(days=1)).date()
+        qs = qs.filter(due_date__date=day)
+    elif bucket == "last7days":
+        qs = qs.filter(
+            due_date__lte=now,
+            due_date__gte=now - timezone.timedelta(days=7)
+        )
+    elif bucket == "older":
+        qs = qs.filter(due_date__lt=now - timezone.timedelta(days=7))
     else:
-        progress.mastery = max(0, progress.mastery - 1)
-        progress.ease_factor = max(1.3, progress.ease_factor - 0.2)
-        progress.interval = 1
-    progress.times_asked += 1
-    progress.last_practiced = timezone.now()
-    progress.due_date = timezone.now() + datetime.timedelta(days=progress.interval)
-    progress.next_review = progress.due_date
-    progress.save()
+        qs = qs.filter(due_date__lte=now)
 
-    # Log review session
-    ReviewSession.objects.create(user=user, word_id=word_id, result=result)
-    return Response(UserWordProgressSerializer(progress).data)
+    items = list(qs.select_related("word"))
 
-@api_view(['GET'])
-@permission_classes([permissions.IsAuthenticated])
-def user_progress(request):
-    """Return user's learning stats."""
-    user = request.user
-    total = UserWordProgress.objects.filter(user=user).count()
-    mastered = UserWordProgress.objects.filter(user=user, mastery__gte=5).count()
-    due = UserWordProgress.objects.filter(user=user, due_date__lte=timezone.now()).count()
-    return Response({
-        'total_words': total,
-        'mastered_words': mastered,
-        'due_reviews': due,
-    })
+    # priority score
+    def priority(u):
+        overdue_days = 0
+        if u.due_date:
+            overdue_days = max(0, int((now - u.due_date).total_seconds() // 86400))
+        mastery_gap = max(0, 2 - (u.mastery or 0))
+        reps_gap = max(0, 3 - (u.repetitions or 0))
+        return 2.0 * overdue_days + 1.5 * mastery_gap + 0.5 * reps_gap
+
+    items.sort(key=priority, reverse=True)
+    items = items[:limit]
+    data = UserWordProgressSerializer(items, many=True).data
+    return Response({"count": len(data), "results": data}, status=200)
+
+
+@api_view(["POST"])
+@permission_classes([permissions.AllowAny])
+def review_answer(request):
+    """
+    Body: { "word_id": <int>, "quality": 0..5, "latency_ms": <int optional> }
+    Applies SM-2, logs ReviewSession, returns updated progress.
+    """
+    user = get_active_user(request)
+    word_id = request.data.get("word_id")
+    quality = request.data.get("quality")
+
+    if word_id is None or quality is None:
+        return Response({"detail": "word_id and quality required"}, status=400)
+
+    try:
+        uwp = UserWordProgress.objects.select_related("word").get(user=user, word_id=word_id)
+    except UserWordProgress.DoesNotExist:
+        return Response({"detail": "Progress not found. Seed it via mark_read."}, status=404)
+
+    apply_sm2(uwp, int(quality), now=timezone.now())
+    uwp.save()
+
+    ReviewSession.objects.create(
+        user=user,
+        word=uwp.word,
+        result=(int(quality) >= 3),
+    )
+    return Response(UserWordProgressSerializer(uwp).data, status=200)

@@ -1,176 +1,250 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { API_BASE_URL } from "../apiConfig";
-import axios from "axios";
 
-const QuizMode = () => {
+export default function QuizMode() {
   const [words, setWords] = useState([]);
-  const [quizQueue, setQuizQueue] = useState([]);
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const [selectedOption, setSelectedOption] = useState(null);
-  const [showResult, setShowResult] = useState(false);
-  const [quizLength, setQuizLength] = useState(null);
   const [quizStarted, setQuizStarted] = useState(false);
+  const [quizLength, setQuizLength] = useState(null); // null = unlimited
+  const [index, setIndex] = useState(0);
+  const [options, setOptions] = useState([]);
+  const [selected, setSelected] = useState(null);
+  const [showResult, setShowResult] = useState(false);
   const [score, setScore] = useState(0);
-  const [completed, setCompleted] = useState(false);
+  const [done, setDone] = useState(false);
 
+  // Fetch words
   useEffect(() => {
-    fetch(`${API_BASE_URL}/words/`)
-      .then((res) => res.json())
-      .then((data) => setWords(data))
-      .catch((err) => console.error(err));
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch(`${API_BASE_URL}/words/`);
+        const data = await r.json();
+        if (cancelled) return;
+        const arr = Array.isArray(data) ? data : [];
+        // shuffle once
+        setWords([...arr].sort(() => Math.random() - 0.5));
+      } catch (e) {
+        if (!cancelled) setWords([]);
+        console.error("fetch words error:", e);
+      }
+    })();
+    return () => { cancelled = true; };
   }, []);
 
-  const startQuiz = (length) => {
-    const queue = words.slice(0, length || words.length);
-    setQuizQueue(queue);
-    setCurrentIndex(0);
-    setScore(0);
-    setCompleted(false);
-    setQuizLength(length || queue.length);
-    setSelectedOption(null);
-    setShowResult(false);
-    setQuizStarted(true);
-  };
+  // current word (respect quizLength if set)
+  const quizPool = useMemo(() => {
+    if (!Array.isArray(words)) return [];
+    if (quizLength && quizLength > 0) return words.slice(0, quizLength);
+    return words;
+  }, [words, quizLength]);
 
-  const currentWord = quizQueue[currentIndex];
+  const currentWord = quizPool[index] || null;
 
-  const generateOptions = () => {
-    if (!currentWord) return [];
+  // Helpers
+  function sampleN(arr, n) {
+    const pool = [...arr];
+    const out = [];
+    while (pool.length && out.length < n) {
+      const i = Math.floor(Math.random() * pool.length);
+      out.push(pool.splice(i, 1)[0]);
+    }
+    return out;
+  }
 
-    const otherMeanings = words
-      .filter(w => w.id !== currentWord.id)
+  const generateOptions = useCallback(() => {
+    if (!currentWord || !Array.isArray(quizPool) || quizPool.length < 2) return [];
+
+    const correct = typeof currentWord.meaning === "string" ? currentWord.meaning : "";
+    const otherMeanings = quizPool
+      .filter(w => w && w.id !== currentWord.id && typeof w.meaning === "string" && w.meaning.trim() !== "")
       .map(w => w.meaning);
 
-    const distractors = otherMeanings
-      .sort(() => 0.5 - Math.random())
-      .slice(0, 3);
+    const distractors = sampleN([...new Set(otherMeanings)], 3);
+    const merged = [...distractors, correct]
+      .filter(Boolean)
+      .filter((v, i, a) => a.indexOf(v) === i);
 
-    const options = [...distractors, currentWord.meaning];
-    return options.sort(() => 0.5 - Math.random());
-  };
+    while (merged.length < 4 && otherMeanings.length) {
+      const extra = sampleN(otherMeanings, 1)[0];
+      if (extra && !merged.includes(extra)) merged.push(extra);
+    }
+    return merged.sort(() => Math.random() - 0.5);
+  }, [currentWord, quizPool]);
 
-  const [options, setOptions] = useState([]);
   useEffect(() => {
-    if (currentWord) {
-      setOptions(generateOptions());
-    }
-  }, [currentWord]);
+    setOptions(generateOptions());
+    setSelected(null);
+    setShowResult(false);
+  }, [generateOptions]);
 
-  const handleOptionClick = (option) => {
-    setSelectedOption(option);
+  // Submit answer + update legacy quiz stats
+  async function submitAnswer(opt) {
+    if (!currentWord) return;
+    setSelected(opt);
+    const correct = opt === currentWord.meaning;
     setShowResult(true);
+    if (correct) setScore(s => s + 1);
 
-    if (option === currentWord.meaning) {
-      setScore(prev => prev + 1);
-      
+    // legacy global stats endpoint (optional; safe if present)
+    try {
+      await fetch(`${API_BASE_URL}/words/${currentWord.id}/update_quiz_stats/`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ correct }),
+      });
+    } catch {
+      // ignore if not configured
+    }
+  }
+
+  function next() {
+    const nextIndex = index + 1;
+    if (nextIndex >= quizPool.length) {
+      setDone(true);
     } else {
-      setScore(prev => prev - 1);
+      setIndex(nextIndex);
     }
-  };
+  }
 
-  const nextQuestion = () => {
-    if (selectedOption !== currentWord.meaning) {
-      // Push word to end of queue if answered wrong
-      setQuizQueue(prev => [...prev, currentWord]);
-    }
+  function start(length) {
+    setQuizLength(length); // 10 or null (unlimited)
+    setQuizStarted(true);
+    setIndex(0);
+    setScore(0);
+    setDone(false);
+    setSelected(null);
+    setShowResult(false);
+  }
 
-    const nextIndex = currentIndex + 1;
-    if (nextIndex >= quizQueue.length) {
-      setCompleted(true);
-      setQuizStarted(false);
-    } else {
-      setCurrentIndex(nextIndex);
-      setShowResult(false);
-      setSelectedOption(null);
-    }
-  };
+  if (!quizStarted) {
+    return (
+      <div className="max-w-xl mx-auto p-6">
+        <h1 className="text-2xl font-bold mb-4">Quiz Mode</h1>
+        {words.length < 4 ? (
+          <div className="text-red-600">Need at least 4 words to start a quiz.</div>
+        ) : (
+          <>
+            <p className="mb-4 text-gray-700">Choose quiz length:</p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => start(10)}
+                className="px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-700"
+              >
+                10 Questions
+              </button>
+              <button
+                onClick={() => start(null)}
+                className="px-4 py-2 rounded bg-green-600 text-white hover:bg-green-700"
+              >
+                Unlimited
+              </button>
+            </div>
+            <p className="mt-6 text-sm text-gray-500">
+              Total words available: {words.length}. Options are drawn from other words’ meanings.
+            </p>
+          </>
+        )}
+      </div>
+    );
+  }
+
+  if (done) {
+    const total = quizPool.length || 0;
+    const pct = total ? Math.round((score / total) * 100) : 0;
+    return (
+      <div className="max-w-xl mx-auto p-6 text-center">
+        <h2 className="text-2xl font-bold">Quiz Completed 🎉</h2>
+        <p className="mt-3 text-lg">
+          Score: <span className="font-bold">{score}</span> / {total} ({pct}%)
+        </p>
+        <div className="mt-6 flex gap-3 justify-center">
+          <button
+            onClick={() => start(10)}
+            className="px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-700"
+          >
+            Play 10 Questions
+          </button>
+          <button
+            onClick={() => start(null)}
+            className="px-4 py-2 rounded bg-green-600 text-white hover:bg-green-700"
+          >
+            Play Unlimited
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!currentWord) {
+    return (
+      <div className="max-w-xl mx-auto p-6">
+        <h1 className="text-2xl font-bold mb-4">Quiz Mode</h1>
+        <p>Loading question...</p>
+      </div>
+    );
+  }
+
+  const total = quizPool.length || 0;
 
   return (
-    <div className="p-4 max-w-2xl mx-auto">
-      <h1 className="text-2xl font-bold mb-4">Quiz Mode</h1>
+    <div className="max-w-2xl mx-auto p-6">
+      <div className="flex items-center justify-between mb-4">
+        <h1 className="text-xl font-bold">Quiz Mode</h1>
+        <div className="text-sm text-gray-600">
+          Q {index + 1} / {total} &nbsp;|&nbsp; Score {score}
+        </div>
+      </div>
 
-      {!quizStarted && !completed && (
+      <div className="mb-4 p-4 bg-white shadow rounded">
+        <p className="text-lg font-semibold">
+          What is the meaning of “<span className="italic">{currentWord.word}</span>”?
+        </p>
+      </div>
+
+      <div className="grid grid-cols-1 gap-2 mb-4">
+        {options.map((opt, i) => {
+          const isCorrect = opt === currentWord.meaning;
+          const isChosen = selected === opt;
+
+          let cls = "p-2 rounded border hover:bg-gray-100";
+          if (showResult) {
+            if (isCorrect) cls = "p-2 rounded border bg-green-200 border-green-500";
+            else if (isChosen) cls = "p-2 rounded border bg-red-200 border-red-500";
+          }
+
+          return (
+            <button
+              key={i}
+              onClick={() => submitAnswer(opt)}
+              className={cls}
+              disabled={showResult}
+            >
+              {opt}
+            </button>
+          );
+        })}
+      </div>
+
+      {showResult && (
         <div className="mb-4">
-          <h2 className="font-semibold mb-2">Choose Quiz Length:</h2>
-          <button
-            onClick={() => startQuiz(10)}
-            className="mr-2 px-4 py-2 bg-blue-500 text-white rounded"
-          >
-            10 Questions
-          </button>
-          <button
-            onClick={() => startQuiz(null)}
-            className="px-4 py-2 bg-green-500 text-white rounded"
-          >
-            Unlimited
-          </button>
-        </div>
-      )}
-
-      {quizStarted && currentWord && (
-        <>
-          <p className="mb-2 text-lg font-semibold">
-            Q{currentIndex + 1} / {quizLength}:
-            What is the meaning of <span className="italic">"{currentWord.word}"</span>?
+          <p className="font-semibold text-blue-700">
+            Correct meaning: {currentWord.meaning}
           </p>
-
-          <div className="grid grid-cols-1 gap-2 mb-4">
-            {options.map((option, index) => (
-              <button
-                key={index}
-                onClick={() => handleOptionClick(option)}
-                className={`p-2 rounded border ${
-                  showResult
-                    ? option === currentWord.meaning
-                      ? "bg-green-200 border-green-500"
-                      : option === selectedOption
-                      ? "bg-red-200 border-red-500"
-                      : ""
-                    : "hover:bg-gray-100"
-                }`}
-                disabled={showResult}
-              >
-                {option}
-              </button>
-            ))}
-          </div>
-
-          {showResult && (
-            <div className="mb-4">
-              <p className="font-semibold text-blue-600">
-                Correct meaning: {currentWord.meaning}
-              </p>
-              <p className="text-gray-700 mt-2">
-                {currentWord.examples?.[0]?.text || "No example available."}
-              </p>
-            </div>
-          )}
-
-          <button
-            onClick={nextQuestion}
-            className="mt-2 px-4 py-2 bg-purple-600 text-white rounded"
-          >
-            Next
-          </button>
-
-          <p className="mt-4 text-md font-semibold">Score: {score}</p>
-        </>
-      )}
-
-      {completed && (
-        <div className="mt-6 text-center">
-          <h2 className="text-xl font-bold text-green-700 mb-2">🎉 Quiz Completed!</h2>
-          <p className="text-lg">Final Score: {score}</p>
-          <button
-            onClick={() => startQuiz(quizLength)}
-            className="mt-4 px-4 py-2 bg-indigo-500 text-white rounded"
-          >
-            Retry Quiz
-          </button>
+          <p className="text-gray-700 mt-2">
+            {Array.isArray(currentWord.examples) && currentWord.examples[0]?.text
+              ? currentWord.examples[0].text
+              : "No example available."}
+          </p>
         </div>
       )}
+
+      <button
+        onClick={showResult ? next : undefined}
+        disabled={!showResult}
+        className="mt-2 px-4 py-2 bg-purple-600 text-white rounded disabled:opacity-50"
+      >
+        Next
+      </button>
     </div>
   );
-};
-
-export default QuizMode;
+}

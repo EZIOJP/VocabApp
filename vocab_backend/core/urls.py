@@ -1,43 +1,44 @@
-"""
-URL configuration for core project.
-
-The `urlpatterns` list routes URLs to views. For more information please see:
-    https://docs.djangoproject.com/en/5.2/topics/http/urls/
-Examples:
-Function views
-    1. Add an import:  from my_app import views
-    2. Add a URL to urlpatterns:  path('', views.home, name='home')
-Class-based views
-    1. Add an import:  from other_app.views import Home
-    2. Add a URL to urlpatterns:  path('', Home.as_view(), name='home')
-Including another URLconf
-    1. Import the include() function: from django.urls import include, path
-    2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
-"""
+# core/urls.py
 from django.contrib import admin
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
+
 from vocab.views import (
-    WordViewSet, low_mastery_words, add_words_bulk,
-    update_quiz_stats, UserWordProgressListCreateView, UserWordProgressDetailView,
-    ReviewSessionListCreateView, reviews_due, reviews_update, user_progress
+    WordViewSet,
+    low_mastery_words,
+    add_words_bulk,
+    update_quiz_stats,   # <- this exists
+    # Spaced-repetition endpoints
+    mark_read,
+    reviews_due,
+    review_answer,
+    # Per-user SR CRUD
+    UserWordProgressListCreateView,
+    UserWordProgressDetailView,
+    ReviewSessionListCreateView,
 )
+
 router = DefaultRouter()
-router.register(r'words', WordViewSet)
+router.register(r'words', WordViewSet, basename='word')
 
 urlpatterns = [
-    path('api/', include(router.urls)),
-    path('admin/', admin.site.urls),
-    # path('math/', include(router.urls)),
-    path('api/add-words/', add_words_bulk),
-    path('words/low_mastery/', low_mastery_words),
-    path("words/<int:pk>/update_quiz_stats/", update_quiz_stats),
-    # --- New spaced repetition/user endpoints ---
-    path('api/userwordprogress/', UserWordProgressListCreateView.as_view(), name='userwordprogress-list'),
-    path('api/userwordprogress/<int:pk>/', UserWordProgressDetailView.as_view(), name='userwordprogress-detail'),
-    path('api/reviewsessions/', ReviewSessionListCreateView.as_view(), name='reviewsession-list'),
-    path('api/reviews/due/', reviews_due, name='reviews-due'),
-    path('api/reviews/update/', reviews_update, name='reviews-update'),
-    path('api/user/progress/', user_progress, name='user-progress'),
-]
+    path("admin/", admin.site.urls),
 
+    # Custom SR endpoints
+    path("api/words/mark-read/", mark_read, name="mark-read"),
+    path("api/reviews/due/", reviews_due, name="reviews-due"),
+    path("api/reviews/answer/", review_answer, name="reviews-answer"),
+
+    # Bulk add, low mastery, legacy stats
+    path("api/add-words/", add_words_bulk),
+    path("api/words/low_mastery/", low_mastery_words),
+    path("api/words/<int:pk>/update_quiz_stats/", update_quiz_stats),
+
+    # Per-user SR CRUD
+    path("api/userwordprogress/", UserWordProgressListCreateView.as_view()),
+    path("api/userwordprogress/<int:pk>/", UserWordProgressDetailView.as_view()),
+    path("api/reviewsessions/", ReviewSessionListCreateView.as_view()),
+
+    # Word CRUD (router last, so it doesn’t shadow the above)
+    path("api/", include(router.urls)),
+]

@@ -9,7 +9,8 @@ import TestWordFetch from "./components/TestWordFetch";
 import AddWordJSON from "./components/AddWordJSON";
 import QuizModeMath from "./components/QuizModeMath";
 import TopBar from "./components/TopBar";
-
+import QuizModeSR from "./components/QuizModeSR";
+import QuizModeSmart from "./components/QuizModeSmart";
 // ✅ Moved mockWords outside component to avoid ReferenceError
 
 export default function App() {
@@ -39,6 +40,8 @@ export default function App() {
           {activeTab === "test" && <TestWordFetch  />}
           {activeTab === "add" && <AddWordJSON   />}
           {activeTab === "quiz2" && <QuizModeMath/>}
+          {activeTab === "quizSR" && <QuizModeSR/>}
+          {activeTab === "quizSMART" && <QuizModeSmart />}
         </div>
       </div>
     </div>

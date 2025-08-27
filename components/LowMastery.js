@@ -1,32 +1,88 @@
+// File: src/components/LowMastery.jsx
 import { useEffect, useState } from "react";
 import { API_BASE_URL } from "../apiConfig";
 
+async function markRead(wordId) {
+  const r = await fetch(`${API_BASE_URL}/words/mark-read/`, {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({ word_id: wordId }),
+  });
+  if (!r.ok) throw new Error("mark-read failed");
+  return r.json();
+}
+
 export default function LowMastery() {
-  const [words, setWords] = useState([]);
-  const [index, setIndex] = useState(0);
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [addingId, setAddingId] = useState(null);
+  const [toast, setToast] = useState(null);
 
-  useEffect(() => {
+  const load = () => {
+    setLoading(true);
     fetch(`${API_BASE_URL}/words/low_mastery/`)
-      .then((res) => res.json())
-      .then((data) => setWords(data))
-      .catch((err) => console.error(err));
-  }, []);
-
-  if (words.length === 0) return <div>Loading words...</div>;
-
-  const total = words.length;
-  const word = words[index];
-
-  const jumpTo = (e) => {
-    const id = parseInt(e.target.value) - 1;
-    if (!isNaN(id) && id >= 0 && id < total) setIndex(id);
+      .then(r => r.json())
+      .then(setItems)
+      .catch(console.error)
+      .finally(() => setLoading(false));
   };
 
+  useEffect(() => { load(); }, []);
+
+  const add = async (id, word) => {
+    try {
+      setAddingId(id);
+      await markRead(id);
+      setToast({type: "success", msg: `${word} added to review`});
+    } catch {
+      setToast({type: "error", msg: "Unable to add"});
+    } finally {
+      setAddingId(null);
+      setTimeout(() => setToast(null), 1200);
+    }
+  };
+
+  if (loading) return <div className="p-4">Loading…</div>;
+
   return (
-    <div className=" bg-white rounded-xl shadow-md p-6 w-full max-w-4xl mx-auto mt-4 relative text-left max-w-2xl mx-auto bg-white p-6 rounded shadow space-y-4 ">
-      <div className="absolute top-2 right-2 rounded-full bg-blue-200 text-blue-900 font-bold text-sm px-3 py-1">
-        ID: {word}
+    <div className="p-4 max-w-3xl mx-auto">
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="text-xl font-bold">Low Mastery</h2>
+        <button
+          className="px-3 py-1.5 rounded border"
+          onClick={load}
+        >
+          Refresh
+        </button>
       </div>
+
+      {!items.length ? (
+        <div className="text-slate-600">Nothing here. 🎉</div>
+      ) : (
+        <ul className="space-y-2">
+          {items.map(w => (
+            <li key={w.id} className="p-3 border rounded flex items-center gap-3">
+              <div className="flex-1">
+                <div className="font-semibold">{w.word}</div>
+                <div className="text-sm text-slate-600">mastery {w.mastery}</div>
+              </div>
+              <button
+                className="px-3 py-1.5 bg-blue-600 text-white rounded disabled:opacity-50"
+                disabled={addingId === w.id}
+                onClick={() => add(w.id, w.word)}
+              >
+                {addingId === w.id ? "Adding…" : "Add to Review"}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {toast && (
+        <div className={`fixed bottom-4 right-4 px-3 py-2 rounded text-white ${toast.type === "success" ? "bg-green-600" : "bg-red-600"}`}>
+          {toast.msg}
+        </div>
+      )}
     </div>
   );
 }

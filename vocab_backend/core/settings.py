@@ -9,7 +9,17 @@ https://docs.djangoproject.com/en/5.2/topics/settings/
 For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.2/ref/settings/
 """
+import os
 
+# Path to IP file (adjust path as needed)
+ip_file_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'local_ip.txt')
+
+try:
+    with open(ip_file_path, 'r') as f:
+        local_ip = f.read().strip()
+except FileNotFoundError:
+    local_ip = ''
+    
 from pathlib import Path
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -24,7 +34,7 @@ SECRET_KEY = 'django-insecure-1eo=z5h_pxfmgg8d+$co!vj7ephhu8w88$2d!2=&oybh!m+-tr
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
-ALLOWED_HOSTS = ['localhost', '127.0.0.1','192.168.0.101','192.168.0.106']
+ALLOWED_HOSTS = ['localhost', '127.0.0.1','192.168.0.102','192.168.0.103',local_ip]
 
 
 # Application definition
@@ -56,7 +66,8 @@ MIDDLEWARE = [
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",  # or wherever your React app runs
     "http://192.168.1.42:3000",  # or the IP address of your React app
-    
+     f'http://{local_ip}:3000',
+    "http://192.168.0.102:3000"
 ]
 
 CORS_ALLOW_ALL_ORIGINS = True
