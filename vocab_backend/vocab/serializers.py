@@ -22,6 +22,9 @@ class MathQuestionSerializer(serializers.ModelSerializer):
         model = MathQuestion
         fields = '__all__'
 
+
+
+
     # ------------------ Validations ------------------ #
 
 # def validate_examples(self, value):

@@ -59,7 +59,7 @@ class UserWordProgress(models.Model):
     ease_factor = models.FloatField(default=2.5)
     interval = models.IntegerField(default=1)  # in days
     due_date = models.DateTimeField(null=True, blank=True)
-
+    repetitions = models.IntegerField(default=0)
     class Meta:
         unique_together = ('user', 'word')
 
