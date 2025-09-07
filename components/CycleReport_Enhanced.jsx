@@ -1,236 +1,370 @@
-// CycleReport.jsx - ENHANCED VERSION - Fixed low mastery flow
-import React from 'react';
+// CycleReport_Enhanced.jsx - FULLY REFACTORED VERSION - Complete low mastery flow
+import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import './UniversalReadMode.css';
+import { API_BASE_URL } from "../apiConfig";
 
 const CycleReport = ({ 
   quizResults, 
   onContinue, 
   onBackToDashboard, 
-  onStartLowMasteryReview, // NEW PROP
-  isLowMasteryMode = false // NEW PROP
+  onStartLowMasteryReview, 
+  isLowMasteryMode = false 
 }) => {
+  const [isLoadingLowMastery, setIsLoadingLowMastery] = useState(false);
+
+  // ✅ SAFETY CHECK: Ensure we have valid quiz results
   if (!quizResults || !quizResults.performance) {
     return (
       <div className="read-mode-container">
-        <div className="read-mode-loading">
-          <div className="loading-spinner">📊</div>
-          <h2>Generating report...</h2>
+        <div className="read-mode-error">
+          <h2>Report Error</h2>
+          <p>No quiz results available to display.</p>
+          <button onClick={onBackToDashboard} className="btn btn-primary">
+            Back to Dashboard
+          </button>
         </div>
       </div>
     );
   }
 
-  const { performance, attempts = [], sessionData = {} } = quizResults;
-  
-  // ✅ ENHANCED: Better low mastery detection
-  const lowMasteryWords = attempts?.filter(attempt => {
-    const finalMastery = attempt.mastery_after || attempt.mastery_before || 0;
-    return finalMastery <= 0; // Words with mastery ≤ 0
-  }) || [];
+  // ✅ EXTRACT PERFORMANCE DATA
+  const performance = quizResults.performance || {};
+  const attempts = quizResults.attempts || [];
+  const sessionData = quizResults.sessionData || {};
 
-  const masteredWords = attempts?.filter(attempt => {
-    const finalMastery = attempt.mastery_after || attempt.mastery_before || 0;
-    return finalMastery >= 6; // Words with mastery ≥ 6 are considered mastered
-  }) || [];
+  // ✅ CALCULATE KEY METRICS
+  const totalQuestions = performance.total_questions || 0;
+  const correctAnswers = performance.correct_answers || 0;
+  const accuracyRate = totalQuestions > 0 ? Math.round((correctAnswers / totalQuestions) * 100) : 0;
+  const wordsImproved = attempts.filter(attempt => 
+    (attempt.mastery_after || 0) > (attempt.mastery_before || 0)
+  ).length;
 
-  const improvingWords = attempts?.filter(attempt => {
-    const finalMastery = attempt.mastery_after || attempt.mastery_before || 0;
-    return finalMastery > 0 && finalMastery < 6; // Words between 1-5 mastery
-  }) || [];
+  // ✅ LOW MASTERY WORD DETECTION
+  const getLowMasteryWords = () => {
+    if (!attempts || attempts.length === 0) return [];
+    
+    // Words with mastery <= 0 after the quiz
+    const lowMasteryAttempts = attempts.filter(attempt => 
+      (attempt.mastery_after || 0) <= 0
+    );
+    
+    return lowMasteryAttempts.map(attempt => ({
+      id: attempt.word_id,
+      word: attempt.word,
+      mastery: attempt.mastery_after,
+      meaning: attempt.correct_answer,
+      pronunciation: attempt.pronunciation || '',
+      examples: attempt.examples || [],
+      is_correct: attempt.is_correct
+    }));
+  };
 
-  const correctAnswers = attempts?.filter(attempt => attempt.is_correct).length || 0;
-  const totalQuestions = attempts?.length || 1;
-  const accuracy = Math.round((correctAnswers / totalQuestions) * 100);
+  const lowMasteryWords = getLowMasteryWords();
+  const lowMasteryCount = lowMasteryWords.length;
 
-  // ✅ ENHANCED: Dynamic recommendations based on mode and performance
-  const getRecommendations = () => {
-    if (isLowMasteryMode) {
-      if (lowMasteryWords.length === 0) {
-        return {
-          title: "🎉 Excellent Progress!",
-          message: "You've successfully mastered all the difficult words in this review session.",
-          action: "continue",
-          buttonText: "Continue Learning"
-        };
+  // ✅ START LOW MASTERY REVIEW WITH API CALL
+  const handleStartLowMastery = async () => {
+    if (lowMasteryCount === 0) {
+      onContinue();
+      return;
+    }
+
+    setIsLoadingLowMastery(true);
+    
+    try {
+      // ✅ FETCH FULL WORD DATA for low mastery words
+      const wordIds = lowMasteryWords.map(w => w.id).join(',');
+      console.log('🎯 Fetching low mastery words:', wordIds);
+      
+      const response = await fetch(
+        `${API_BASE_URL}/words/by-criteria/?word_ids=${wordIds}&mastery_max=0&limit=50`
+      );
+      
+      if (response.ok) {
+        const data = await response.json();
+        console.log('✅ Low mastery words fetched:', data.words.length);
+        onStartLowMasteryReview(data.words || lowMasteryWords);
       } else {
-        return {
-          title: "📚 Keep Going!",
-          message: `${lowMasteryWords.length} words still need more practice. Let's review them again.`,
-          action: "repeat_low_mastery",
-          buttonText: "Review Again"
-        };
+        console.warn('⚠️ API failed, using basic word data');
+        onStartLowMasteryReview(lowMasteryWords);
       }
-    } else {
-      if (lowMasteryWords.length === 0) {
-        return {
-          title: "🌟 Perfect Session!",
-          message: "All words are progressing well. Great work!",
-          action: "continue",
-          buttonText: "Continue Learning"
-        };
-      } else {
-        return {
-          title: "🎯 Time for Focused Review",
-          message: `${lowMasteryWords.length} words need extra attention. Let's give them focused practice.`,
-          action: "start_low_mastery",
-          buttonText: "Review Difficult Words"
-        };
-      }
+    } catch (error) {
+      console.error('❌ Failed to fetch low mastery words:', error);
+      onStartLowMasteryReview(lowMasteryWords);
+    } finally {
+      setIsLoadingLowMastery(false);
     }
   };
 
-  const recommendation = getRecommendations();
+  // ✅ PERFORMANCE LEVEL CALCULATION
+  const getPerformanceLevel = () => {
+    if (accuracyRate >= 90) return { level: 'Excellent', color: 'text-success', emoji: '🌟' };
+    if (accuracyRate >= 75) return { level: 'Good', color: 'text-success', emoji: '✅' };
+    if (accuracyRate >= 60) return { level: 'Fair', color: 'text-warning', emoji: '⚡' };
+    return { level: 'Needs Practice', color: 'text-error', emoji: '🎯' };
+  };
 
-  // ✅ ENHANCED: Smart button handler
-  const handleMainAction = () => {
-    switch (recommendation.action) {
-      case "start_low_mastery":
-        // Start low mastery review with the specific words
-        onStartLowMasteryReview?.(lowMasteryWords.map(attempt => attempt.word || attempt));
-        break;
-      case "repeat_low_mastery":
-        // Repeat low mastery review
-        onStartLowMasteryReview?.(lowMasteryWords.map(attempt => attempt.word || attempt));
-        break;
-      case "continue":
-      default:
-        onContinue();
-        break;
-    }
+  const performanceLevel = getPerformanceLevel();
+
+  // ✅ RENDER MASTERY CHANGES
+  const renderMasteryChanges = () => {
+    const masteryChanges = attempts.filter(attempt => 
+      attempt.mastery_before !== attempt.mastery_after
+    );
+
+    if (masteryChanges.length === 0) return null;
+
+    return (
+      <div className="mastery-changes-section">
+        <h3>📈 Mastery Changes</h3>
+        <div className="mastery-changes-grid">
+          {masteryChanges.slice(0, 6).map((attempt, index) => (
+            <div key={index} className="mastery-change-item">
+              <div className="word-name">{attempt.word}</div>
+              <div className="mastery-progression">
+                <span className={`mastery-before ${attempt.mastery_before <= 0 ? 'negative' : ''}`}>
+                  {attempt.mastery_before}
+                </span>
+                <span className="mastery-arrow">→</span>
+                <span className={`mastery-after ${attempt.mastery_after <= 0 ? 'negative' : ''}`}>
+                  {attempt.mastery_after}
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+        {masteryChanges.length > 6 && (
+          <p className="more-changes">
+            +{masteryChanges.length - 6} more words improved
+          </p>
+        )}
+      </div>
+    );
   };
 
   return (
     <div className="read-mode-container">
+      {/* Header */}
+      <div className="read-mode-header">
+        <div className="read-mode-title">
+          <h1>
+            {isLowMasteryMode ? '🎯 Low Mastery Review Complete' : '📊 Quiz Report'}
+          </h1>
+        </div>
+      </div>
+
+      {/* Main Content */}
       <div className="read-mode-content">
-        <motion.div 
-          className="word-card"
-          initial={{ opacity: 0, scale: 0.9 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ duration: 0.3 }}
+        <motion.div
+          className="report-card"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5 }}
         >
-          {/* Header */}
-          <div className="word-header bg-theme-accent">
-            <div className="word-title text-white">
-              {isLowMasteryMode ? "🔄 Review Results" : "📊 Session Complete"}
+          {/* Performance Overview */}
+          <div className="performance-overview">
+            <div className="performance-header">
+              <div className="performance-emoji">{performanceLevel.emoji}</div>
+              <div className="performance-details">
+                <h2 className={performanceLevel.color}>{performanceLevel.level}</h2>
+                <p>{accuracyRate}% Accuracy</p>
+              </div>
             </div>
-            <div className="word-pronunciation text-white">
-              {isLowMasteryMode ? "Low Mastery Review" : "Learning Progress"}
+
+            <div className="performance-stats">
+              <div className="stat-item">
+                <span className="stat-label">Questions</span>
+                <span className="stat-value">{totalQuestions}</span>
+              </div>
+              <div className="stat-item">
+                <span className="stat-label">Correct</span>
+                <span className="stat-value text-success">{correctAnswers}</span>
+              </div>
+              <div className="stat-item">
+                <span className="stat-label">Words Improved</span>
+                <span className="stat-value text-primary">{wordsImproved}</span>
+              </div>
+              {performance.time_spent && (
+                <div className="stat-item">
+                  <span className="stat-label">Time</span>
+                  <span className="stat-value">{Math.round(performance.time_spent / 60)}m</span>
+                </div>
+              )}
             </div>
           </div>
 
-          {/* Main Content */}
-          <div className="word-sections">
-            {/* Overall Performance */}
-            <div className="mb-8">
-              <h3 className="text-2xl font-semibold mb-4">Overall Performance</h3>
-              <div className="grid grid-cols-2 gap-4 mb-6">
-                <div className="simple-card text-center">
-                  <div className="text-3xl font-bold text-accent">{accuracy}%</div>
-                  <div className="text-sm text-muted">Accuracy</div>
-                </div>
-                <div className="simple-card text-center">
-                  <div className="text-3xl font-bold text-accent">{correctAnswers}/{totalQuestions}</div>
-                  <div className="text-sm text-muted">Correct Answers</div>
-                </div>
-              </div>
-            </div>
+          {/* Mastery Changes */}
+          {renderMasteryChanges()}
 
-            {/* Progress Breakdown */}
-            <div className="mb-8">
-              <h3 className="text-xl font-semibold mb-4">Word Progress</h3>
-              <div className="space-y-3">
-                {masteredWords.length > 0 && (
-                  <div className="flex items-center justify-between p-3 bg-success rounded-lg">
-                    <div className="flex items-center gap-3">
-                      <span className="text-xl">✅</span>
-                      <span className="font-medium">Mastered</span>
-                    </div>
-                    <span className="font-semibold">{masteredWords.length} words</span>
+          {/* Low Mastery Section for Regular Quiz */}
+          {!isLowMasteryMode && lowMasteryCount > 0 && (
+            <motion.div
+              className="low-mastery-section"
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ delay: 0.3, duration: 0.4 }}
+            >
+              <div className="low-mastery-header">
+                <h3>🎯 Words Needing More Practice</h3>
+                <p>{lowMasteryCount} words still need improvement (mastery ≤ 0)</p>
+              </div>
+
+              <div className="low-mastery-words-preview">
+                {lowMasteryWords.slice(0, 3).map((word, index) => (
+                  <div key={index} className="low-mastery-word-item">
+                    <span className="word-text">{word.word}</span>
+                    <span className={`mastery-level ${word.is_correct ? 'incorrect' : 'struggling'}`}>
+                      {word.is_correct ? 'Incorrect' : 'Struggling'}
+                    </span>
                   </div>
-                )}
-                
-                {improvingWords.length > 0 && (
-                  <div className="flex items-center justify-between p-3 bg-warning rounded-lg">
-                    <div className="flex items-center gap-3">
-                      <span className="text-xl">📈</span>
-                      <span className="font-medium">Improving</span>
-                    </div>
-                    <span className="font-semibold">{improvingWords.length} words</span>
-                  </div>
-                )}
-                
-                {lowMasteryWords.length > 0 && (
-                  <div className="flex items-center justify-between p-3 bg-error rounded-lg">
-                    <div className="flex items-center gap-3">
-                      <span className="text-xl">🎯</span>
-                      <span className="font-medium">Need Practice</span>
-                    </div>
-                    <span className="font-semibold">{lowMasteryWords.length} words</span>
-                  </div>
+                ))}
+                {lowMasteryCount > 3 && (
+                  <div className="more-words">+{lowMasteryCount - 3} more</div>
                 )}
               </div>
-            </div>
 
-            {/* ✅ ENHANCED: Dynamic Recommendation */}
-            <div className="mb-8">
-              <div className="simple-card bg-theme-surface border-2 border-accent">
-                <h3 className="text-lg font-semibold mb-2">{recommendation.title}</h3>
-                <p className="text-secondary mb-4">{recommendation.message}</p>
+              <div className="action-buttons">
+                <button 
+                  onClick={handleStartLowMastery} 
+                  className="btn btn-primary low-mastery-btn"
+                  disabled={isLoadingLowMastery}
+                >
+                  {isLoadingLowMastery ? (
+                    <>🔄 Loading...</>
+                  ) : (
+                    <>📚 Review Difficult Words ({lowMasteryCount})</>
+                  )}
+                </button>
                 
-                <div className="flex gap-3">
-                  <button 
-                    onClick={handleMainAction}
-                    className="btn btn-primary flex-1"
-                  >
-                    {recommendation.buttonText}
-                  </button>
-                  
-                  <button 
-                    onClick={onBackToDashboard}
-                    className="btn btn-outline"
-                  >
-                    Dashboard
-                  </button>
-                </div>
+                <button 
+                  onClick={onContinue} 
+                  className="btn btn-secondary"
+                >
+                  Skip for Now
+                </button>
               </div>
-            </div>
+            </motion.div>
+          )}
 
-            {/* ✅ ENHANCED: Low Mastery Words List (when applicable) */}
-            {lowMasteryWords.length > 0 && (
-              <div className="mb-6">
-                <h3 className="text-lg font-semibold mb-3">Words Needing Review</h3>
-                <div className="simple-card bg-theme-surface">
-                  <div className="flex flex-wrap gap-2">
-                    {lowMasteryWords.slice(0, 10).map((attempt, index) => (
-                      <span 
-                        key={index}
-                        className="px-3 py-1 bg-error text-white rounded-full text-sm"
-                      >
-                        {attempt.word || attempt.text || `Word ${index + 1}`}
+          {/* Low Mastery Mode Completion */}
+          {isLowMasteryMode && (
+            <motion.div
+              className="low-mastery-complete-section"
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ delay: 0.3, duration: 0.4 }}
+            >
+              <h3>🔄 Low Mastery Review Complete</h3>
+              
+              {lowMasteryCount > 0 ? (
+                <div className="continue-practice">
+                  <p className="practice-message">
+                    {lowMasteryCount} words still need more practice
+                  </p>
+                  <div className="remaining-words-preview">
+                    {lowMasteryWords.slice(0, 4).map((word, index) => (
+                      <span key={index} className="remaining-word-tag">
+                        {word.word}
                       </span>
                     ))}
-                    {lowMasteryWords.length > 10 && (
-                      <span className="px-3 py-1 bg-secondary rounded-full text-sm">
-                        +{lowMasteryWords.length - 10} more
-                      </span>
+                    {lowMasteryCount > 4 && (
+                      <span className="more-words-tag">+{lowMasteryCount - 4}</span>
                     )}
                   </div>
+                  
+                  <div className="action-buttons">
+                    <button 
+                      onClick={handleStartLowMastery} 
+                      className="btn btn-primary"
+                      disabled={isLoadingLowMastery}
+                    >
+                      {isLoadingLowMastery ? (
+                        <>🔄 Loading...</>
+                      ) : (
+                        <>🔁 Continue Practice ({lowMasteryCount} words)</>
+                      )}
+                    </button>
+                    
+                    <button 
+                      onClick={onContinue} 
+                      className="btn btn-secondary"
+                    >
+                      Finish for Now
+                    </button>
+                  </div>
                 </div>
-              </div>
-            )}
+              ) : (
+                <div className="all-improved">
+                  <div className="success-message">
+                    <span className="success-emoji">🎉</span>
+                    <h4>Excellent! All words improved</h4>
+                    <p>Great progress on your vocabulary mastery!</p>
+                  </div>
+                  
+                  <button 
+                    onClick={onContinue} 
+                    className="btn btn-primary"
+                  >
+                    🏠 Back to Dashboard
+                  </button>
+                </div>
+              )}
+            </motion.div>
+          )}
 
-            {/* Session Stats */}
-            {sessionData.session_id && (
-              <div className="text-center text-sm text-secondary">
-                <p>Session ID: {sessionData.session_id}</p>
+          {/* Regular Mode Completion */}
+          {!isLowMasteryMode && lowMasteryCount === 0 && (
+            <div className="completion-section">
+              <div className="completion-message">
+                <h3>🎉 Great Work!</h3>
+                <p>All words are progressing well. Ready for the next challenge?</p>
+              </div>
+              
+              <button 
+                onClick={onContinue} 
+                className="btn btn-primary completion-btn"
+              >
+                Continue Learning
+              </button>
+            </div>
+          )}
+
+          {/* Session Details */}
+          {sessionData && Object.keys(sessionData).length > 0 && (
+            <div className="session-details">
+              <h4>Session Details</h4>
+              <div className="session-info">
+                {sessionData.session_id && (
+                  <p><strong>Session ID:</strong> {sessionData.session_id}</p>
+                )}
                 {sessionData.total_time && (
-                  <p>Total Time: {Math.round(sessionData.total_time / 1000)}s</p>
+                  <p><strong>Total Time:</strong> {Math.round(sessionData.total_time / 1000)}s</p>
+                )}
+                {performance.retry_queue_cleared !== undefined && (
+                  <p><strong>Retry Queue:</strong> {performance.retry_queue_cleared ? 'Cleared' : 'Pending'}</p>
                 )}
               </div>
-            )}
-          </div>
+            </div>
+          )}
         </motion.div>
+      </div>
+
+      {/* Navigation */}
+      <div className="read-mode-navigation">
+        <div className="nav-hint left">
+          <span>ESC</span>
+          <small>Dashboard</small>
+        </div>
+        <div className="nav-hint center">
+          <span>{isLowMasteryMode ? 'Low Mastery Report' : 'Quiz Report'}</span>
+          <small>Review Complete</small>
+        </div>
+        <div className="nav-hint right">
+          <span>ENTER</span>
+          <small>Continue</small>
+        </div>
       </div>
     </div>
   );
