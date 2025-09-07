@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-
+import ThemeToggle from "../components/ThemeToggle";
 // List of fun easter eggs (emoji, quote, or fun fact)
 const EASTER_EGGS = [
   "🌱 Stay curious!",
@@ -172,6 +172,13 @@ export default function TopBar() {
     <header className="w-full sticky top-0 z-50 bg-gradient-to-r from-blue-900/90 via-blue-700/90 to-blue-500/80 shadow flex items-center justify-between px-4 sm:px-8 py-2 mb-4">
       <div className="flex items-center gap-3">
         <span className="text-2xl font-extrabold text-white tracking-tight drop-shadow">VocabApp</span>
+      
+
+<header>              
+  {/* other controls */}
+  <ThemeToggle size="md" />
+</header>
+
         <span className="hidden sm:inline text-blue-100 text-xs font-mono italic opacity-80">{egg}</span>
       </div>
   <PomodoroTimerDockable />

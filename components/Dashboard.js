@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { API_BASE_URL } from "../apiConfig";
-
+ // Ensure Tailwind CSS is imported
 export default function Dashboard() {
   const [words, setWords] = useState([]);
   const [wordOfDay, setWordOfDay] = useState(null);
@@ -54,9 +54,9 @@ export default function Dashboard() {
   }, []);
 
   return (
-    <div className="p-0 max-w-5xl mx-auto w-full">
+    <div className="p-0 max-w-5xl mx-auto w-full ">
       {/* Stat cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8 px-6">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8 px-6 ">
         <StatCard title="Total Words" value={words.length} tone="blue" />
         <StatCard
           title="Words Read This Week"
@@ -73,13 +73,13 @@ export default function Dashboard() {
 
       {/* Word of the day card */}
       {wordOfDay && (
-        <div className="bg-white rounded-lg shadow p-6 mb-8 mx-6">
-          <div className="flex flex-col gap-3">
+        <div className="rounded-lg shadow  mb-8 mx-6 simple-card">
+          <div className="flex flex-col gap-3 ">
             <div className="text-2xl font-bold">
               {wordOfDay.word}{" "}
               <span className="text-lg text-gray-500">{wordOfDay.pronunciation}</span>
             </div>
-            <div className="text-gray-800 italic">{wordOfDay.meaning}</div>
+            <div className="simple-text italic">{wordOfDay.meaning}</div>
             <div className="text-sm">
               <span className="font-semibold">Connotation:</span>{" "}
               <span className="capitalize">{wordOfDay.connotation || "neutral"}</span>
@@ -99,7 +99,7 @@ export default function Dashboard() {
                 <span className="font-semibold">Word Breakdown: </span>
                 {Object.entries(wordOfDay.word_breakdown).map(([k, v]) => (
                   <span key={k} className="inline-block mr-2">
-                    <span className="font-mono text-xs bg-gray-100 px-1 rounded">{k}: {v}</span>
+                    <span className="font-mono text-xs bg-theme px-1 simple-text rounded">{k}: {v}</span>
                   </span>
                 ))}
               </div>

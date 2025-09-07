@@ -20,7 +20,8 @@ export default function LowMastery() {
 
   const load = () => {
     setLoading(true);
-    fetch(`${API_BASE_URL}/words/low_mastery/`)
+    
+    fetch(`${API_BASE_URL}/user/low_mastery/?max=0`)
       .then(r => r.json())
       .then(setItems)
       .catch(console.error)
@@ -63,8 +64,8 @@ export default function LowMastery() {
           {items.map(w => (
             <li key={w.id} className="p-3 border rounded flex items-center gap-3">
               <div className="flex-1">
-                <div className="font-semibold">{w.word}</div>
-                <div className="text-sm text-slate-600">mastery {w.mastery}</div>
+                
+                
               </div>
               <button
                 className="px-3 py-1.5 bg-blue-600 text-white rounded disabled:opacity-50"

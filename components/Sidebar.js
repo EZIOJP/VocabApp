@@ -7,12 +7,17 @@ const TABS = [
   { name: "Dashboard", key: "dashboard", icon: "🏠" },
   { name: "Read", key: "read", icon: "📖" },
   { name: "Low Mastery", key: "low", icon: "⬇" },
-  { name: "Quiz", key: "quiz", icon: "📝" },
+  //{ name: "Quiz", key: "quiz", icon: "📝" },
   { name: "Quiz2 (Math)", key: "quiz2", icon: "➗" },
-  { name: "Quizsr", key: "quizSR", icon: "🔁" },
+  //{ name: "Quizsr", key: "quizSR", icon: "🔁" },
   { name: "Add Word", key: "add", icon: "➕" },
   { name: "Test Fetch", key: "test", icon: "🔬" },
-  { name: "Test Fetch", key: "quizSMART", icon: "🔬" },
+  { name: "CycleManger", key: "cycle", icon: "X" },
+  { name: "Due Reviews", key: "due", icon: "⏰" },
+  { name: "Struggling", key: "struggling", icon: "⚠️" },
+  { name: "Theme Test", key: "themetest", icon: "🎨" },
+  { name: "WordCard", key: "WordCard", icon: "V" },
+
 ];
 
 export default function Sidebar({ setActiveTab, activeTab }) {
